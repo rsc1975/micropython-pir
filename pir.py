@@ -51,7 +51,7 @@ class PIR():
         self._timer = Timer(501) # 501 = timerID (from sensor model number)
         self._last_detection = None
 
-    def _callback(self, pin):
+    def _monitor(self, pin):
         if pin() == 1:
             self.active = True
             now = time.ticks_ms()
@@ -65,7 +65,7 @@ class PIR():
             self._last_detection = now
 
     def _end_movement_handler(self, _):
-        if self.is_actived(raw=True):
+        if self.is_active(raw=True):
             #This case can happen if the sensor detects movement longer than the reactivation_delay
             self._timer.init(period=self.reactivation_delay, mode=Timer.ONE_SHOT, callback=self._end_movement_handler)
         else:
@@ -75,7 +75,7 @@ class PIR():
 
     def _prepare_monitor(self):
         if self._callback_on is not None or self._callback_off is not None:
-            self.trigger_pin.irq(trigger=Pin.IRQ_RISING,handler=self._callback)
+            self.trigger_pin.irq(trigger=Pin.IRQ_RISING,handler=self._monitor)
         else:
             self.trigger_pin.irq(trigger=Pin.IRQ_RISING,handler=None)
 
@@ -94,7 +94,7 @@ class PIR():
         self.trigger_pin = Pin(trigger_pin_id, mode=Pin.IN)
         self._prepare_monitor()
     
-    def is_actived(self, raw=False):
+    def is_active(self, raw=False):
         """
         Return true if the sensor is currently detecting movement or if the time 
         from the last activation is less than the reactivation_delay.
