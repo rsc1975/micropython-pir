@@ -61,13 +61,17 @@ class PIR():
             if (self._callback_on and
             (not self._last_detection or time.ticks_diff(now, self._last_detection) > self.reactivation_delay)):
                 self._callback_on(self.trigger_pin)
-                self._timer.init(period=self.reactivation_delay, mode=Timer.ONE_SHOT, callback=self.internal)
+            self._timer.init(period=self.reactivation_delay, mode=Timer.ONE_SHOT, callback=self._end_movement_handler)
             self._last_detection = now
 
-    def _end_movement_handler(self, pin):
-        self.active = False
-        if self._callback_off:
-            self._callback_off(pin)
+    def _end_movement_handler(self, _):
+        if self.is_actived(raw=True):
+            #This case can happen if the sensor detects movement longer than the reactivation_delay
+            self._timer.init(period=self.reactivation_delay, mode=Timer.ONE_SHOT, callback=self._end_movement_handler)
+        else:
+            self.active = False
+            if self._callback_off:
+                self._callback_off(self.trigger_pin)
 
     def _prepare_monitor(self):
         if self._callback_on is not None or self._callback_off is not None:
