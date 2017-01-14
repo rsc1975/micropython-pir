@@ -49,10 +49,19 @@ class PIR():
         self._callback_on = None
         self._callback_off = None
         self._timer = Timer(501) # 501 = timerID (from sensor model number)
+        self._qtimer = Timer(502) 
+        self._qtimer.init(period=200, mode=Timer.PERIODIC, callback=self._check_reset)
+        self._sched_end = False
         self._last_detection = None
 
-    def _monitor(self, pin):
-        if pin() == 1:
+    def _check_reset(self, _=None):
+        if self._sched_end:
+            self._timer.init(period=self.reactivation_delay, mode=Timer.ONE_SHOT, callback=self._end_movement_handler)
+            self._sched_end = False
+
+    def _monitor(self, _=None):
+        print('t1')
+        if self.trigger_pin() == 1:
             self.active = True
             now = time.ticks_ms()
             # If thre is any registerd callback and
@@ -61,7 +70,7 @@ class PIR():
             if (self._callback_on and
             (not self._last_detection or time.ticks_diff(now, self._last_detection) > self.reactivation_delay)):
                 self._callback_on(self.trigger_pin)
-            self._timer.init(period=self.reactivation_delay, mode=Timer.ONE_SHOT, callback=self._end_movement_handler)
+            self._sched_end = True
             self._last_detection = now
 
     def _end_movement_handler(self, _):
@@ -75,11 +84,13 @@ class PIR():
 
     def _prepare_monitor(self):
         if self._callback_on is not None or self._callback_off is not None:
+            if self.is_active(raw=True):
+                self._monitor() # If the sensor is currently active the callback is called inmediatelly
             self.trigger_pin.irq(trigger=Pin.IRQ_RISING,handler=self._monitor)
         else:
             self.trigger_pin.irq(trigger=Pin.IRQ_RISING,handler=None)
 
-    def clear():
+    def clear(self):
         """
         Remove all registered callback methods
         """
@@ -123,6 +134,3 @@ class PIR():
         self._callback_off = callback
         self._prepare_monitor()
     
-
-
-t.init(period=50, mode=Timer.ONE_SHOT, callback=hola)
