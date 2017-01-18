@@ -29,6 +29,8 @@ __version__ = '0.1.0'
 __author__ = 'Roberto Sánchez'
 __license__ = "MIT"
 
+POLLING_PERIOD_MS = 200
+
 class PIR():
     """
     A pythonic PIR (Passive Infrared Sensor) driver for micropython
@@ -44,51 +46,47 @@ class PIR():
 
     def __init__(self, trigger_pin_id, reactivation_delay_ms=10000):
         self.trigger_pin = Pin(trigger_pin_id, mode=Pin.IN)
-        self.active = bool(self.trigger_pin())
+        self.active = False
+        self._waiting_reactivation = False
         self.reactivation_delay = reactivation_delay_ms
         self._callback_on = None
         self._callback_off = None
-        self._timer = Timer(501) # 501 = timerID (from sensor model number)
-        self._qtimer = Timer(502) 
-        self._qtimer.init(period=200, mode=Timer.PERIODIC, callback=self._check_reset)
-        self._sched_end = False
+        self._qtimer =  Timer(501) # 501 = timerID (from sensor model number)
+        self._qtimer.init(period=200, mode=Timer.PERIODIC, callback=self._monitor)
         self._last_detection = None
-
-    def _check_reset(self, _=None):
-        if self._sched_end:
-            self._timer.init(period=self.reactivation_delay, mode=Timer.ONE_SHOT, callback=self._end_movement_handler)
-            self._sched_end = False
-
+    
     def _monitor(self, _=None):
-        print('t1')
-        if self.trigger_pin() == 1:
+        is_active_now = self.is_active(raw=True)
+        if not self.active and is_active_now:
+            # The sensor is active and the driver is not so we change the driver status to active
             self.active = True
+            if self._callback_on: self._callback_on(self.trigger_pin)
+            self._last_detection = time.ticks_ms()
+            self._waiting_reactivation = False
+        elif self.active:
+            # The driver status is active,  the sensor can be active or not
             now = time.ticks_ms()
-            # If thre is any registerd callback and
-            # doesn't exist a previous activation or
-            # the tme from the last activation is greater than reactivation_delay
-            if (self._callback_on and
-            (not self._last_detection or time.ticks_diff(now, self._last_detection) > self.reactivation_delay)):
-                self._callback_on(self.trigger_pin)
-            self._sched_end = True
-            self._last_detection = now
+            if not is_active_now:
+                # The sensor is not detecting movement but the driver keeps the active state
+                # so we check if a new activation can happen again to reset the time to deactivation
+                self._waiting_reactivation = True
+            elif self._waiting_reactivation:
+                # The sensor active again so we use this event as new time reference for deactivation
+                self._last_detection = now
+                self._waiting_reactivation = False
 
-    def _end_movement_handler(self, _):
-        if self.is_active(raw=True):
-            #This case can happen if the sensor detects movement longer than the reactivation_delay
-            self._timer.init(period=self.reactivation_delay, mode=Timer.ONE_SHOT, callback=self._end_movement_handler)
-        else:
-            self.active = False
-            if self._callback_off:
-                self._callback_off(self.trigger_pin)
-
-    def _prepare_monitor(self):
-        if self._callback_on is not None or self._callback_off is not None:
-            if self.is_active(raw=True):
-                self._monitor() # If the sensor is currently active the callback is called inmediatelly
-            self.trigger_pin.irq(trigger=Pin.IRQ_RISING,handler=self._monitor)
-        else:
-            self.trigger_pin.irq(trigger=Pin.IRQ_RISING,handler=None)
+            if time.ticks_diff(now, self._last_detection) >= self.reactivation_delay):
+                # the time from the last activation is greater than reactivation_delay
+                # So we are ready to call end_callback or to keep the active status
+                if is_active_now:
+                    # We keep the active status a bit longer (self.reactivation_delay // 2)
+                    self._last_detection = now - self.reactivation_delay // 2
+                else:
+                    # The sensor is not active and is time to deactivate the driver 
+                    # and to call the end_callback is exists
+                    self.active = False
+                    self._waiting_reactivation = False
+                    if self._callback_off: self._callback_off(self.trigger_pin)
 
     def clear(self):
         """
@@ -96,7 +94,6 @@ class PIR():
         """
         self._callback_on = None
         self._callback_off = None
-        self._prepare_monitor()
 
     def init(self, trigger_pin_id, reactivation_delay_ms=10000):
         """
@@ -121,7 +118,9 @@ class PIR():
         the callback method again
         """
         self._callback_on = callback
-        self._prepare_monitor()
+        if callback is not None and self.is_active():
+            self._monitor() # If the sensor is currently active the callback is called inmediatelly
+
     
     def on_movement_end(self, callback):
         """
@@ -132,5 +131,5 @@ class PIR():
         If the sensor detect movement again, the counter is reinitiated.
         """
         self._callback_off = callback
-        self._prepare_monitor()
     
+
