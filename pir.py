@@ -75,7 +75,7 @@ class PIR():
                 self._last_detection = now
                 self._waiting_reactivation = False
 
-            if time.ticks_diff(now, self._last_detection) >= self.reactivation_delay):
+            if time.ticks_diff(now, self._last_detection) >= self.reactivation_delay:
                 # the time from the last activation is greater than reactivation_delay
                 # So we are ready to call end_callback or to keep the active status
                 if is_active_now:
